@@ -38,7 +38,7 @@ async def test_denied_access():
 
     result = await graph.ainvoke(
         {
-            "query": "What are the engineering system details?",
+            "query": "What are the HR policies and employee guidelines?",
             "subject_id": "bob",
             "max_attempts": 3,
             "retrieval_attempt": 0,
@@ -52,7 +52,7 @@ async def test_denied_access():
         }
     )
 
-    # Bob should not have access to engineering documents
+    # Bob (sales) should not have access to HR documents
     assert len(result["authorized_documents"]) == 0
     assert result["denied_count"] > 0
     assert result["answer"] != ""

@@ -7,31 +7,22 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import asyncio
-from agentic_rag.graph import build_agentic_rag_graph
+from agentic_rag.graph import run_agentic_rag_async
 from agentic_rag.config import get_config
 
 
-async def run_query(graph, query: str, subject_id: str):
+async def run_query(query: str, subject_id: str):
     """Run a single query through the agentic RAG system."""
     print(f"\n{'='*60}")
     print(f"Query: {query}")
     print(f"User: {subject_id}")
     print('='*60)
 
-    result = await graph.ainvoke(
-        {
-            "query": query,
-            "subject_id": subject_id,
-            "max_attempts": 1,
-            "retrieval_attempt": 0,
-            "messages": [],
-            "reasoning": [],
-            "retrieved_documents": [],
-            "authorized_documents": [],
-            "denied_count": 0,
-            "authorization_passed": False,
-            "answer": "",
-        }
+    # Use the simplified helper function
+    result = await run_agentic_rag_async(
+        query=query,
+        subject_id=subject_id,
+        max_attempts=1
     )
 
     print(f"\n📊 Results:")
@@ -69,13 +60,9 @@ async def main():
     print("Agentic RAG with Authorization - Basic Examples")
     print("="*60)
 
-    # Build graph
-    graph = build_agentic_rag_graph()
-
     # Example 1: Alice (engineering) queries engineering documents
     print("\n🔵 SCENARIO 1: Department Access - Engineering")
     await run_query(
-        graph,
         "What are our microservices architecture patterns?",
         "alice"
     )
@@ -83,7 +70,6 @@ async def main():
     # Example 2: Bob (sales) queries sales documents
     print("\n🔵 SCENARIO 2: Department Access - Sales")
     await run_query(
-        graph,
         "What sales proposals do we have?",
         "bob"
     )
@@ -91,7 +77,6 @@ async def main():
     # Example 3: Cross-department document access
     print("\n🔵 SCENARIO 3: Cross-Department Access")
     await run_query(
-        graph,
         "What architecture documentation is available for sales?",
         "bob"
     )
@@ -99,7 +84,6 @@ async def main():
     # Example 4: Individual exception - Alice accessing sales doc
     print("\n🔵 SCENARIO 4: Individual Exception")
     await run_query(
-        graph,
         "Show me sales proposals",
         "alice"
     )
@@ -107,7 +91,6 @@ async def main():
     # Example 5: Public document access
     print("\n🔵 SCENARIO 5: Public Document Access")
     await run_query(
-        graph,
         "What are the company handbook guidelines?",
         "bob"
     )
@@ -115,7 +98,6 @@ async def main():
     # Example 6: Finance manager queries
     print("\n🔵 SCENARIO 6: Finance Department Access")
     await run_query(
-        graph,
         "What are the quarterly financial reports?",
         "finance_manager"
     )
@@ -123,7 +105,6 @@ async def main():
     # Example 7: Access denial - Alice queries sales (except individual exception)
     print("\n🔵 SCENARIO 7: Access Denial")
     await run_query(
-        graph,
         "What are all the sales playbooks?",
         "alice"
     )
@@ -131,7 +112,6 @@ async def main():
     # Example 8: HR manager queries
     print("\n🔵 SCENARIO 8: HR Department Access")
     await run_query(
-        graph,
         "What HR policies do we have?",
         "hr_manager"
     )

@@ -1,12 +1,11 @@
 """Reasoning node - agent reasons about authorization failures."""
 
-import time
-from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import AIMessage
+
 from ..state import AgenticRAGState
-from ..config import get_config
 from ..logging_config import get_logger
+from ..node_helpers import get_llm, log_node_execution
 
 logger = get_logger("nodes.reasoning")
 
@@ -38,58 +37,50 @@ def reasoning_node(state: AgenticRAGState) -> dict:
     - Explain authorization constraints
     - Make informed decisions about how to proceed
     """
-    start_time = time.time()
-
-    logger.info(
-        "Starting reasoning",
-        extra={
-            "subject_id": state["subject_id"],
-            "authorized_count": len(state["authorized_documents"]),
-            "denied_count": state["denied_count"],
-            "attempt": state["retrieval_attempt"],
-        },
-    )
-
-    config = get_config()
-
-    llm = ChatOpenAI(model="gpt-4", temperature=0, api_key=config.openai_api_key)
-
-    prompt = ChatPromptTemplate.from_messages(
-        [
-            ("system", REASONING_PROMPT),
-        ]
-    )
-
-    chain = prompt | llm
-
-    result = chain.invoke(
+    with log_node_execution(
+        logger,
+        "reasoning",
         {
-            "query": state["query"],
             "subject_id": state["subject_id"],
-            "retrieved_count": len(state["retrieved_documents"]),
             "authorized_count": len(state["authorized_documents"]),
             "denied_count": state["denied_count"],
             "attempt": state["retrieval_attempt"],
-            "max_attempts": state["max_attempts"],
-            "reasoning": "\n".join(state.get("reasoning", [])),
         }
-    )
+    ):
+        llm = get_llm()
 
-    reasoning = state.get("reasoning", [])
-    reasoning.append(result.content)
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", REASONING_PROMPT),
+            ]
+        )
 
-    duration_ms = (time.time() - start_time) * 1000
+        chain = prompt | llm
 
-    logger.info(
-        "Reasoning complete",
-        extra={
-            "subject_id": state["subject_id"],
-            "decision_length": len(result.content),
-            "duration_ms": duration_ms,
-        },
-    )
+        result = chain.invoke(
+            {
+                "query": state["query"],
+                "subject_id": state["subject_id"],
+                "retrieved_count": len(state["retrieved_documents"]),
+                "authorized_count": len(state["authorized_documents"]),
+                "denied_count": state["denied_count"],
+                "attempt": state["retrieval_attempt"],
+                "max_attempts": state["max_attempts"],
+                "reasoning": "\n".join(state.get("reasoning", [])),
+            }
+        )
 
-    return {
-        "reasoning": reasoning,
-        "messages": [AIMessage(content=f"Reasoning: {result.content}")],
-    }
+        reasoning = state.get("reasoning", [])
+        reasoning.append(result.content)
+
+        logger.info(
+            "Reasoning decision",
+            extra={
+                "decision_length": len(result.content),
+            },
+        )
+
+        return {
+            "reasoning": reasoning,
+            "messages": [AIMessage(content=f"Reasoning: {result.content}")],
+        }

@@ -16,10 +16,14 @@ This repository demonstrates how to combine agentic behavior with deterministic 
 
 This teaching tool demonstrates:
 
-1. **Agentic RAG patterns** - How to build RAG systems that adapt and explain their behavior
-2. **Security architecture** - Integrating deterministic authorization that cannot be bypassed
-3. **Production features** - Structured logging, connection pooling, batch operations, error handling
-4. **Real-world complexity** - 50 documents, 4 permission patterns, multiple user scenarios
+1. **Fine-grained authorization in RAG** - How to enforce document-level permissions with SpiceDB
+2. **Security architecture** - Deterministic authorization boundary that cannot be bypassed
+3. **Transparent explanations** - Systems that explain what users can and can't access
+4. **Production features** - Structured logging, connection pooling, batch operations, error handling
+5. **Real-world complexity** - 50 documents, 4 permission patterns, multiple user scenarios
+6. **Optional adaptation** - How to enable retry logic when needed (max_attempts > 1)
+
+Note: Despite the "agentic RAG" name, the default mode is intentionally simple and deterministic (3 nodes: retrieve → authorize → generate). This provides fast, predictable behavior suitable for most use cases.
 
 ## The Problem This Solves
 
@@ -31,18 +35,23 @@ Traditional RAG retrieves documents by semantic similarity without considering p
 ## The Solution
 
 This implementation shows how to combine:
-- **Agentic behavior**: Agent plans retrieval, reasons about failures, and explains constraints
+- **Retrieval-first approach**: Direct semantic/keyword search without upfront planning overhead
 - **Deterministic security**: SpiceDB authorization that cannot be bypassed
 - **Transparency**: Users understand what they can/can't access and why
+- **Optional adaptation**: Can enable reasoning for retry logic when needed
 
 ```
 Traditional RAG:  Query → Retrieve → Generate
                            ↓
                     (no permission checks)
 
-This approach:    Query → [Agent Plans] → Retrieve → [SpiceDB Authorizes] → [Agent Reasons] → Generate
-                           ↓                          ↓                        ↓
-                      Can adapt              Security boundary         Explains constraints
+This approach (default):  Query → Retrieve → [SpiceDB Authorizes] → Generate
+                                               ↓
+                                       Security boundary
+
+Advanced mode:           Query → Retrieve → [SpiceDB Authorizes] → [Reason] → Generate/Retry
+                                               ↓                      ↓
+                                       Security boundary      Adaptive behavior
 ```
 
 ## Quick Example
@@ -132,18 +141,28 @@ definition document {
 
 ### 2. State Flow
 
+**Default Mode (max_attempts=1):**
 ```
 User Query
     ↓
-Planning Node ← Agent plans retrieval using tools
-    ↓
-Retrieval Node ← Weaviate semantic/keyword search
+Retrieval Node ← Weaviate BM25 keyword search
     ↓
 Authorization Node ← SpiceDB filters (SECURITY BOUNDARY - cannot be bypassed)
     ↓
+Generation Node ← Answer with authorized context + explanations
+```
+
+**Adaptive Mode (max_attempts > 1):**
+```
+User Query
+    ↓
+Retrieval Node ← Weaviate search
+    ↓
+Authorization Node ← SpiceDB filters (SECURITY BOUNDARY)
+    ↓
 Conditional Branch:
 ├─ Has authorized docs → Generation Node
-└─ No authorized docs → Reasoning Node → (retry or explain)
+└─ No authorized docs → Reasoning Node → Retry Retrieval or Generate Explanation
 ```
 
 ### 3. Security Guarantees
@@ -153,26 +172,34 @@ Conditional Branch:
 - **Fail closed**: Access denied unless explicitly granted
 - **Observable**: Full audit trail in state
 
-### 4. Agentic Advantages
+### 4. System Behavior
 
-The agent can:
-- **Plan**: Choose retrieval strategies based on query
-- **Adapt**: Retry with different approaches when documents are denied
-- **Explain**: Tell users why access was limited and what information is available
-- **Check proactively**: Verify permissions before retrieval to save time
+The system provides:
+- **Direct retrieval**: BM25 keyword search without planning overhead (fast, efficient)
+- **Deterministic authorization**: SpiceDB enforces permissions consistently
+- **Transparent explanations**: Generation explains what was accessible and what wasn't
+- **Optional adaptation**: Enable reasoning (max_attempts > 1) for retry logic when needed
+
+Note: By default (max_attempts=1), the system is intentionally simple and deterministic rather than highly agentic. This provides fast, predictable behavior suitable for most use cases. Enable adaptive mode (max_attempts > 1) when you need retry logic and iterative refinement.
 
 ## When to Use This Pattern
 
-**Use agentic RAG when:**
-- Authorization failures need adaptive responses
-- Users need clear explanations of access limitations
-- Retrieval strategies should adapt to the query
+**Use this RAG pattern when:**
+- You need fine-grained document-level authorization
+- Users should understand what they can/can't access
+- Authorization logic is complex (department-based, cross-department, exceptions)
 - Transparency matters for trust/compliance
+- You want deterministic, predictable behavior
 
-**Use pipeline RAG when:**
-- Predictable, consistent flow is more important than flexibility
-- Speed is critical (agentic adds ~2-3s for reasoning)
+**Enable adaptive mode (max_attempts > 1) when:**
+- Retrieval failures should trigger retry logic
+- Authorization failures need adaptive responses
+- Users benefit from multiple retrieval strategies
+
+**Use traditional pipeline RAG when:**
 - Authorization is simple (all-or-nothing access)
+- No per-document permissions needed
+- Semantic similarity alone determines results
 
 ## Project Structure
 
@@ -181,15 +208,17 @@ agentic-rag-weaviate/
 ├── agentic_rag/
 │   ├── graph.py               # LangGraph state machine
 │   ├── state.py               # State schema
+│   ├── config.py              # Configuration management
 │   ├── nodes/
-│   │   ├── planning_node.py   # Agent plans retrieval
-│   │   ├── retrieval_node.py  # Weaviate search
+│   │   ├── retrieval_node.py  # Weaviate BM25 search
 │   │   ├── authorization_node.py  # SpiceDB filtering (security boundary)
-│   │   ├── reasoning_node.py  # Agent reasons about failures
+│   │   ├── reasoning_node.py  # Optional: adaptive retry logic
 │   │   └── generation_node.py # Final answer with context
-│   └── tools/
-│       ├── weaviate_tool.py   # Search tool
-│       └── permission_tool.py # Permission check tool
+│   ├── authorization_helpers.py  # Batch permission checking
+│   ├── weaviate_client.py     # Connection pooling for Weaviate
+│   ├── grpc_helpers.py        # Connection pooling for SpiceDB
+│   ├── logging_config.py      # Structured JSON logging
+│   └── validation.py          # Input validation and sanitization
 ├── examples/
 │   ├── setup_environment.py   # Initialize data (loads 50 documents)
 │   └── basic_example.py       # 8 demo scenarios
@@ -276,8 +305,11 @@ This implementation includes production-ready patterns you can learn from:
 - **Batch operations**: SpiceDB's `CheckBulkPermissions` API (5-10x faster than sequential)
 - **Error handling**: Graceful degradation when services fail
 - **Input validation**: Prevents DoS and injection attacks
+- **Simplified architecture**: 3-node default flow (retrieve → authorize → generate)
 
-**Performance:** Typical 5-8s query latency (4-7s LLM, 0.5-1s retrieval, 40-50ms authorization)
+**Performance:**
+- Default mode (max_attempts=1): ~3-4s per query (2-3s LLM, 0.5-1s retrieval, 40-50ms authorization)
+- Adaptive mode (max_attempts > 1): ~5-8s per query (adds 1-2s per reasoning/retry cycle)
 
 For detailed performance analysis and optimization strategies, see [PERFORMANCE.md](PERFORMANCE.md).
 

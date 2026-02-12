@@ -21,10 +21,22 @@ Technical details for those implementing similar systems or extending this one.
 
 ### LangGraph State Machine
 
+**Default Flow (max_attempts=1):**
 ```
 START
   ↓
-Planning Node (Agent)
+Retrieval Node (Weaviate BM25)
+  ↓
+Authorization Node (SpiceDB) ◄── Security Boundary (deterministic)
+  ↓
+Generation Node (LLM with context + explanations)
+  ↓
+END
+```
+
+**Adaptive Flow (max_attempts > 1):**
+```
+START
   ↓
 Retrieval Node (Weaviate)
   ↓
@@ -32,10 +44,12 @@ Authorization Node (SpiceDB) ◄── Security Boundary (deterministic)
   ↓
 Conditional:
 ├─ Has authorized docs? → Generation Node → END
-└─ No authorized docs? → Reasoning Node → Conditional:
-                                          ├─ Attempts left? → Planning Node (retry)
-                                          └─ Max attempts? → Generation Node → END
+└─ No authorized docs AND attempts left? → Reasoning Node → Conditional:
+                                                             ├─ Should retry? → Retrieval Node
+                                                             └─ Max attempts? → Generation Node → END
 ```
+
+Note: The system starts directly at retrieval. There is no planning node. With max_attempts=1 (default), reasoning is skipped entirely, making the flow simple and deterministic: Retrieve → Authorize → Generate.
 
 ### State Schema
 
@@ -64,22 +78,6 @@ AgenticRAGState = TypedDict("AgenticRAGState", {
 
 ## Node Responsibilities
 
-### Planning Node (Agentic)
-
-**Purpose**: Agent plans retrieval strategy using available tools.
-
-**Tools available:**
-- `search_documents`: Query Weaviate
-- `check_permission`: Verify permissions with SpiceDB
-
-**Output**: Updates `messages`, `reasoning`, `retrieval_attempt`
-
-**Example reasoning:**
-```
-"I'll search for documents about 'architecture' and 'engineering'.
-I should retrieve 5 documents to ensure good coverage."
-```
-
 ### Retrieval Node (Deterministic)
 
 **Purpose**: Execute semantic/keyword search in Weaviate.
@@ -87,11 +85,14 @@ I should retrieve 5 documents to ensure good coverage."
 **Input**: `query` from state
 
 **Operation**:
-- Weaviate BM25/hybrid search
+- Weaviate BM25 keyword search (default)
 - Returns top-k documents (typically 5)
 - No authorization filtering at this stage
+- Direct execution without planning overhead
 
-**Output**: Updates `retrieved_documents`
+**Output**: Updates `retrieved_documents`, `retrieval_attempt`
+
+Note: This node runs immediately on query input. There is no planning phase before retrieval.
 
 ### Authorization Node (Deterministic - Security Boundary)
 
@@ -125,31 +126,39 @@ return {
 
 **Output**: Updates `authorized_documents`, `denied_count`, `authorization_passed`
 
-### Reasoning Node (Agentic)
+### Reasoning Node (Optional - Only with max_attempts > 1)
 
-**Purpose**: Agent analyzes authorization results and decides whether to retry.
+**Purpose**: LLM analyzes authorization results and decides whether to retry retrieval.
+
+**When it runs**: Only if `max_attempts > 1` AND `authorization_passed == False` AND attempts remain.
 
 **Input**: `authorized_documents`, `denied_count`, `retrieval_attempt`, `max_attempts`
 
 **Decision logic:**
-- If documents were denied and attempts remain: plan new strategy
-- If max attempts reached: prepare explanation
+- If documents were denied and attempts remain: decide whether retry will help
+- If max attempts reached: prepare for explanation in generation
+- Updates reasoning trace for transparency
 
-**Output**: Updates `reasoning`, may update `retrieval_attempt`
+**Output**: Updates `reasoning`
 
-### Generation Node (Agentic)
+Note: With default settings (max_attempts=1), this node never runs. The flow goes directly from authorization to generation.
+
+### Generation Node (LLM-based)
 
 **Purpose**: Generate final answer incorporating authorization context.
 
 **Input**: `query`, `authorized_documents`, `denied_count`, `reasoning`
 
 **Behavior:**
-- Uses authorized documents as context
-- Mentions if documents were denied
-- Explains access limitations transparently
-- Provides helpful answer within constraints
+- Uses authorized documents as context for answer
+- Mentions if documents were denied (transparency)
+- Explains access limitations when applicable
+- Provides helpful answer within authorization constraints
+- Always runs (even if no authorized documents)
 
 **Output**: Updates `answer`
+
+Note: This is the only node that always uses the LLM in default mode (max_attempts=1). It handles both successful retrievals and authorization failures with appropriate explanations.
 
 ## Authorization Model (SpiceDB)
 
@@ -361,52 +370,55 @@ def authorize(state):
 
 **Reason:** Security decisions must be deterministic, auditable, and policy-based.
 
-## Agentic vs Pipeline RAG
+## Modes of Operation
 
-### Pipeline RAG
+### Default Mode (max_attempts=1)
 
 ```
 Query
   ↓
-Retrieve (fixed strategy)
+Retrieve (BM25 search)
   ↓
 Authorize (filter)
   ↓
-Generate (fixed prompt)
+Generate (with explanations)
   ↓
 Answer
 ```
 
 **Characteristics:**
-- Simple, predictable
-- Fast (no agent reasoning overhead)
-- Cannot adapt to failures
-- Basic explanations
+- Simple, predictable (3 nodes)
+- Fast (~3-4s total)
+- No retry logic
+- Transparent explanations of authorization
+- Single LLM call (generation only)
+- Deterministic retrieval strategy
 
-### Agentic RAG (This Implementation)
+### Adaptive Mode (max_attempts > 1)
 
 ```
 Query
   ↓
-[Agent Plans] ← Can choose strategy
-  ↓
 Retrieve
   ↓
-[Authorize] ← Security boundary
+Authorize ← Security boundary
   ↓
-[Agent Reasons] ← Can adapt
+[Reason if needed] ← LLM decides retry
   ↓
-Generate
+Generate or Retry
   ↓
-Answer + Transparent Explanation
+Answer + Reasoning Trace
 ```
 
 **Characteristics:**
-- Adaptive to failures
-- Transparent reasoning
-- Can retry with new strategies
-- Rich explanations
-- Slower (~2-3s overhead)
+- Can adapt to failures (4 nodes)
+- Slower (~5-8s with retries)
+- Retry logic when authorization fails
+- Rich reasoning traces
+- Multiple LLM calls (reasoning + generation)
+- Can try different retrieval approaches
+
+Note: Default mode is intentionally simple and deterministic, not highly agentic. Enable adaptive mode only when you need retry logic.
 
 ## Extension Points
 
@@ -456,12 +468,19 @@ def authorization_node(state: AgenticRAGState):
 
 ### Current Implementation
 
+**Default Mode (max_attempts=1):**
 ```
-Query → Planning → Retrieval → Authorization → Reasoning → Generation
-        ~2-3s      ~100-200ms   ~50ms/doc      ~2-3s       ~2-3s
+Query → Retrieval → Authorization → Generation
+        ~0.5-1s     ~40-50ms       ~2-3s
 ```
+**Total**: ~3-4 seconds per query
 
-**Total**: ~6-10 seconds per query
+**Adaptive Mode (max_attempts > 1, with retry):**
+```
+Query → Retrieval → Authorization → Reasoning → Retrieval → Authorization → Generation
+        ~0.5-1s     ~40-50ms       ~1-2s       ~0.5-1s     ~40-50ms       ~2-3s
+```
+**Total**: ~5-8 seconds per query (depends on retry count)
 
 ### Optimization Opportunities
 

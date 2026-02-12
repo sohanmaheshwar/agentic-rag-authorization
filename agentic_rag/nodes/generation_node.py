@@ -1,12 +1,11 @@
 """Generation node - generate final answer with authorization context."""
 
-import time
-from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import AIMessage
+
 from ..state import AgenticRAGState
-from ..config import get_config
 from ..logging_config import get_logger
+from ..node_helpers import get_llm, log_node_execution
 
 logger = get_logger("nodes.generation")
 
@@ -35,64 +34,56 @@ def generation_node(state: AgenticRAGState) -> dict:
     This node creates the final response, ensuring transparency
     about what information was accessible and what was denied.
     """
-    start_time = time.time()
-
-    logger.info(
-        "Starting generation",
-        extra={
-            "subject_id": state["subject_id"],
-            "authorized_count": len(state["authorized_documents"]),
-            "denied_count": state["denied_count"],
-        },
-    )
-
-    config = get_config()
-
-    llm = ChatOpenAI(model="gpt-4", temperature=0, api_key=config.openai_api_key)
-
-    # Format documents with clear boundaries
-    if state["authorized_documents"]:
-        doc_parts = []
-        for i, doc in enumerate(state["authorized_documents"], 1):
-            doc_parts.append(
-                f"--- Document {i} ---\n"
-                f"Title: {doc.metadata['title']}\n"
-                f"Content: {doc.page_content}\n"
-                f"--- End Document {i} ---"
-            )
-        docs_text = "\n\n".join(doc_parts)
-    else:
-        docs_text = "No authorized documents available."
-
-    prompt = ChatPromptTemplate.from_messages(
-        [
-            ("system", GENERATION_PROMPT),
-        ]
-    )
-
-    chain = prompt | llm
-
-    result = chain.invoke(
+    with log_node_execution(
+        logger,
+        "generation",
         {
-            "query": state["query"],
+            "subject_id": state["subject_id"],
             "authorized_count": len(state["authorized_documents"]),
             "denied_count": state["denied_count"],
-            "documents": docs_text,
         }
-    )
+    ):
+        llm = get_llm()
 
-    duration_ms = (time.time() - start_time) * 1000
+        # Format documents with clear boundaries
+        if state["authorized_documents"]:
+            doc_parts = []
+            for i, doc in enumerate(state["authorized_documents"], 1):
+                doc_parts.append(
+                    f"--- Document {i} ---\n"
+                    f"Title: {doc.metadata['title']}\n"
+                    f"Content: {doc.page_content}\n"
+                    f"--- End Document {i} ---"
+                )
+            docs_text = "\n\n".join(doc_parts)
+        else:
+            docs_text = "No authorized documents available."
 
-    logger.info(
-        "Generation complete",
-        extra={
-            "subject_id": state["subject_id"],
-            "answer_length": len(result.content),
-            "duration_ms": duration_ms,
-        },
-    )
+        prompt = ChatPromptTemplate.from_messages(
+            [
+                ("system", GENERATION_PROMPT),
+            ]
+        )
 
-    return {
-        "answer": result.content,
-        "messages": [AIMessage(content=f"Answer: {result.content}")],
-    }
+        chain = prompt | llm
+
+        result = chain.invoke(
+            {
+                "query": state["query"],
+                "authorized_count": len(state["authorized_documents"]),
+                "denied_count": state["denied_count"],
+                "documents": docs_text,
+            }
+        )
+
+        logger.info(
+            "Generated answer",
+            extra={
+                "answer_length": len(result.content),
+            },
+        )
+
+        return {
+            "answer": result.content,
+            "messages": [AIMessage(content=f"Answer: {result.content}")],
+        }
