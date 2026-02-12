@@ -8,8 +8,6 @@ This repository demonstrates how to combine agentic behavior with deterministic 
 
 - **[README.md](README.md)** (you are here) - Overview, quick start, core concepts
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** - Deep dive into system design, security model, and trade-offs
-- **[PERFORMANCE.md](PERFORMANCE.md)** - Performance optimization, monitoring, and benchmarking
-- **[CONTRIBUTING.md](CONTRIBUTING.md)** - Development setup, extending the system, adding features
 - **[data/PERMISSIONS.md](data/PERMISSIONS.md)** - Permission matrix and authorization patterns
 
 ## What You'll Learn
@@ -113,6 +111,74 @@ python3 examples/setup_environment.py
 
 # 5. Run demo
 python3 examples/basic_example.py
+```
+
+Expected output: 4 scenarios showing authorized access, denied access, and transparent explanations.
+
+## Web UI
+
+A web interface is available to demonstrate the authorization capabilities interactively.
+
+### Quick Start
+
+```bash
+# 1. Ensure services are running and data is initialized
+docker-compose up -d
+python3 examples/setup_environment.py  # If not already done
+
+# 2. Install web dependencies
+pip install -r requirements.txt  # Includes fastapi and uvicorn
+
+# 3. Launch UI (includes pre-flight checks)
+python3 run_ui.py
+```
+
+The launcher will:
+- ✅ Check that Weaviate, SpiceDB, and OpenAI are configured
+- ✅ Verify documents are loaded
+- 🚀 Start the FastAPI server
+- 🌐 Open your browser to http://localhost:8000
+
+### Manual Start
+
+```bash
+# Terminal 1: Start services (if not running)
+docker-compose up -d
+
+# Terminal 2: Start API server
+uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
+
+# Browser
+open http://localhost:8000
+```
+
+### Web UI Features
+
+- **User Selection**: Choose from 4 users (alice, bob, hr_manager, finance_manager)
+- **Query Input**: Enter natural language queries
+- **Example Queries**: Pre-populated queries demonstrating different authorization scenarios
+- **Authorization Transparency**: See which documents were authorized vs denied in real-time
+- **Answer Generation**: LLM-generated answer using only authorized documents
+- **Statistics Display**: Retrieved count, authorized count, denied count, and execution time
+
+### API Endpoints
+
+The backend provides a REST API that can be used independently:
+
+- `GET /api/users` - List available users
+- `GET /api/health` - Health check for services
+- `POST /api/query` - Execute RAG query with authorization
+- `GET /docs` - Interactive API documentation (Swagger UI)
+
+Example API usage:
+```bash
+curl -X POST http://localhost:8000/api/query \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "What are our microservices architecture patterns?",
+    "subject_id": "alice",
+    "max_attempts": 1
+  }'
 ```
 
 Expected output: 4 scenarios showing authorized access, denied access, and transparent explanations.
