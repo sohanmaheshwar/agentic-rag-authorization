@@ -2,6 +2,7 @@
 
 from dataclasses import dataclass
 from functools import lru_cache
+from typing import Optional
 import os
 from dotenv import load_dotenv
 
@@ -14,7 +15,7 @@ class Config:
 
     # Weaviate
     weaviate_url: str
-    weaviate_api_key: str | None
+    weaviate_api_key: Optional[str]
 
     # SpiceDB
     spicedb_endpoint: str
@@ -24,7 +25,10 @@ class Config:
     openai_api_key: str
 
     # Agent behavior
-    max_retrieval_attempts: int = 3
+    max_retrieval_attempts: int = 1
+
+    # Logging
+    log_level: str = "INFO"
 
     @classmethod
     def from_env(cls):
@@ -35,7 +39,8 @@ class Config:
             spicedb_endpoint=os.getenv("SPICEDB_ENDPOINT", "localhost:50051"),
             spicedb_token=os.getenv("SPICEDB_TOKEN", "devtoken"),
             openai_api_key=os.getenv("OPENAI_API_KEY", ""),
-            max_retrieval_attempts=int(os.getenv("MAX_RETRIEVAL_ATTEMPTS", "3")),
+            max_retrieval_attempts=int(os.getenv("MAX_RETRIEVAL_ATTEMPTS", "1")),
+            log_level=os.getenv("LOG_LEVEL", "INFO"),
         )
 
 

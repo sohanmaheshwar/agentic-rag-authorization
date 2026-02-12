@@ -1,14 +1,14 @@
 """Authorization node - deterministic permission filtering via SpiceDB."""
 
+import time
 from langchain_core.messages import SystemMessage
 from ..state import AgenticRAGState
 from ..config import get_config
-from authzed.api.v1 import (
-    CheckPermissionRequest,
-    ObjectReference,
-    SubjectReference,
-)
-from ..grpc_helpers import create_insecure_spicedb_client
+from ..grpc_helpers import get_spicedb_client
+from ..logging_config import get_logger
+from ..authorization_helpers import batch_check_permissions
+
+logger = get_logger("nodes.authorization")
 
 
 def authorization_node(state: AgenticRAGState) -> dict:
@@ -18,36 +18,44 @@ def authorization_node(state: AgenticRAGState) -> dict:
     This node filters retrieved documents based on SpiceDB permissions.
     This is a security boundary - the agent cannot bypass this check.
     """
+    start_time = time.time()
+
+    logger.info(
+        "Starting authorization",
+        extra={
+            "subject_id": state["subject_id"],
+            "document_count": len(state["retrieved_documents"]),
+        },
+    )
+
     config = get_config()
 
-    # Initialize SpiceDB client (insecure for local development)
-    client = create_insecure_spicedb_client(
+    # Get or create SpiceDB client (reused across requests)
+    client = get_spicedb_client(
         config.spicedb_endpoint,
         config.spicedb_token,
     )
 
-    # Filter documents by permissions
-    authorized_docs = []
-    for doc in state["retrieved_documents"]:
-        doc_id = doc.metadata.get("doc_id")
+    # Batch check permissions using SpiceDB's bulk API
+    authorized_docs, denied_doc_ids = batch_check_permissions(
+        client,
+        state["subject_id"],
+        state["retrieved_documents"],
+    )
 
-        # Check permission via SpiceDB
-        request = CheckPermissionRequest(
-            resource=ObjectReference(object_type="document", object_id=doc_id),
-            permission="view",
-            subject=SubjectReference(
-                object=ObjectReference(object_type="user", object_id=state["subject_id"])
-            ),
-        )
+    denied_count = len(denied_doc_ids)
+    duration_ms = (time.time() - start_time) * 1000
 
-        response = client.CheckPermission(request)
-
-        # Check if permission is granted
-        # permissionship: 0=UNSPECIFIED, 1=NO_PERMISSION, 2=HAS_PERMISSION
-        if response.permissionship == 2:
-            authorized_docs.append(doc)
-
-    denied_count = len(state["retrieved_documents"]) - len(authorized_docs)
+    logger.info(
+        "Authorization complete",
+        extra={
+            "subject_id": state["subject_id"],
+            "authorized": len(authorized_docs),
+            "denied": denied_count,
+            "denied_doc_ids": denied_doc_ids,
+            "duration_ms": duration_ms,
+        },
+    )
 
     return {
         "authorized_documents": authorized_docs,

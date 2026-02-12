@@ -1,8 +1,27 @@
 # Agentic RAG with Fine-Grained Authorization
 
-Build RAG systems where an agent adapts to authorization constraints instead of failing silently.
+**A hands-on teaching tool for developers learning to build RAG systems with authorization.**
 
-## The Problem
+This repository demonstrates how to combine agentic behavior with deterministic security using LangGraph, SpiceDB, and Weaviate. You'll learn to build RAG systems where an agent adapts to authorization constraints instead of failing silently.
+
+## Documentation Navigation
+
+- **[README.md](README.md)** (you are here) - Overview, quick start, core concepts
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** - Deep dive into system design, security model, and trade-offs
+- **[PERFORMANCE.md](PERFORMANCE.md)** - Performance optimization, monitoring, and benchmarking
+- **[CONTRIBUTING.md](CONTRIBUTING.md)** - Development setup, extending the system, adding features
+- **[data/PERMISSIONS.md](data/PERMISSIONS.md)** - Permission matrix and authorization patterns
+
+## What You'll Learn
+
+This teaching tool demonstrates:
+
+1. **Agentic RAG patterns** - How to build RAG systems that adapt and explain their behavior
+2. **Security architecture** - Integrating deterministic authorization that cannot be bypassed
+3. **Production features** - Structured logging, connection pooling, batch operations, error handling
+4. **Real-world complexity** - 50 documents, 4 permission patterns, multiple user scenarios
+
+## The Problem This Solves
 
 Traditional RAG retrieves documents by semantic similarity without considering permissions. This creates two issues:
 
@@ -77,7 +96,8 @@ source venv/bin/activate
 pip install -r requirements.txt
 
 # 3. Configure
-echo "OPENAI_API_KEY=sk-your-key-here" > .env
+cp .env.example .env
+# Edit .env with your actual OpenAI API key (never commit .env!)
 
 # 4. Initialize data
 python3 examples/setup_environment.py
@@ -171,11 +191,16 @@ agentic-rag-weaviate/
 │       ├── weaviate_tool.py   # Search tool
 │       └── permission_tool.py # Permission check tool
 ├── examples/
-│   ├── setup_environment.py   # Initialize data
-│   └── basic_example.py       # End-to-end demo
+│   ├── setup_environment.py   # Initialize data (loads 50 documents)
+│   └── basic_example.py       # 8 demo scenarios
+├── scripts/
+│   ├── generate_documents.py  # Generate 50 .txt files
+│   ├── parse_documents.py     # Parse documents into objects
+│   └── verify_permissions.py  # Test authorization patterns
 ├── data/
+│   ├── documents/             # 50 .txt files (5 departments)
 │   ├── schema.zed             # SpiceDB permission schema
-│   └── sample_docs.json       # Sample documents
+│   └── PERMISSIONS.md         # Permission matrix
 └── docker-compose.yml         # Weaviate + SpiceDB
 ```
 
@@ -194,22 +219,36 @@ SPICEDB_TOKEN=devtoken
 MAX_RETRIEVAL_ATTEMPTS=3
 ```
 
+## Dataset Overview
+
+The repository includes a realistic 50-document dataset across 5 departments:
+
+- **Engineering**: 15 documents (architecture, guides, memos, specs)
+- **Sales**: 10 documents (proposals, guides, playbooks, reports)
+- **HR**: 10 documents (policies, guides, handbooks, memos)
+- **Finance**: 10 documents (reports, policies, analyses, memos)
+- **Public**: 5 documents (handbooks, policies - accessible to all)
+
+**4 Authorization Patterns:**
+1. Department-based access (primary pattern)
+2. Cross-department collaboration (3 shared documents)
+3. Individual user exceptions (3 special grants)
+4. Public documents (accessible to all users)
+
+See [data/PERMISSIONS.md](data/PERMISSIONS.md) for the complete permission matrix.
+
 ## Sample Scenarios
 
-### Scenario 1: Authorized Access
-- **User**: alice (engineering)
-- **Query**: "system architecture best practices"
-- **Result**: 2 engineering docs authorized, answer generated
+The `examples/basic_example.py` demonstrates 8 scenarios:
 
-### Scenario 2: Denied Access
-- **User**: bob (sales)
-- **Query**: "engineering system architecture"
-- **Result**: 0 docs authorized, agent explains limitation
-
-### Scenario 3: Partial Access
-- **User**: alice (engineering)
-- **Query**: "company policies"
-- **Result**: Engineering docs authorized, HR docs denied, transparent explanation
+1. **Department Access** - alice queries engineering documents
+2. **Access Denial** - bob attempts to access engineering documents
+3. **Cross-Department** - bob accesses shared architecture document
+4. **Individual Exception** - alice accesses sales proposal (special grant)
+5. **Public Access** - Anyone can access company handbooks
+6. **Finance Department** - finance_manager queries financial reports
+7. **HR Department** - hr_manager queries HR policies
+8. **Transparent Explanations** - Agent explains why access was denied
 
 ## Key Design Decisions
 
@@ -228,28 +267,45 @@ MAX_RETRIEVAL_ATTEMPTS=3
 - Guarantees compliance with permission policies
 - Agent reasons about results, not controls them
 
-## Production Considerations
+## Production Features
 
-For production use, add:
-- **Caching**: Cache SpiceDB permission checks
-- **Observability**: LangSmith tracing, structured logging
-- **Security**: TLS for SpiceDB, authentication layer
-- **Performance**: Batch permission checks, async Weaviate client
-- **Testing**: Integration tests with testcontainers
+This implementation includes production-ready patterns you can learn from:
 
-## Extending the System
+- **Structured logging**: JSON logs with audit trails and performance metrics
+- **Connection pooling**: Singleton pattern for SpiceDB and Weaviate clients (eliminates 100ms overhead)
+- **Batch operations**: SpiceDB's `CheckBulkPermissions` API (5-10x faster than sequential)
+- **Error handling**: Graceful degradation when services fail
+- **Input validation**: Prevents DoS and injection attacks
 
-**Add new permission rules:**
-Edit `data/schema.zed` and reload with `examples/setup_environment.py`
+**Performance:** Typical 5-8s query latency (4-7s LLM, 0.5-1s retrieval, 40-50ms authorization)
 
-**Add new documents:**
-Edit `data/sample_docs.json` and re-run setup
+For detailed performance analysis and optimization strategies, see [PERFORMANCE.md](PERFORMANCE.md).
 
-**Customize agent behavior:**
-Modify nodes in `agentic_rag/nodes/` or add new tools
+## Learning Path
 
-**Change retrieval strategy:**
-Update `retrieval_node.py` to use hybrid search, different ranking, etc.
+**For beginners:**
+1. Start here - understand the problem and solution
+2. Run the Quick Start above
+3. Review `examples/basic_example.py` to see the system in action
+4. Check `data/PERMISSIONS.md` to understand authorization patterns
+
+**For intermediate learners:**
+5. Read [ARCHITECTURE.md](ARCHITECTURE.md) for design decisions and security model
+6. Explore the code in `agentic_rag/nodes/` to see how each node works
+7. Review [PERFORMANCE.md](PERFORMANCE.md) for optimization strategies
+
+**For advanced learners:**
+8. Extend the system - add new nodes, tools, or permission patterns
+9. Experiment with hybrid search, caching, or async operations
+10. Adapt patterns to your own use case
+
+## Contributing & Extending
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for:
+- Development setup
+- Adding documents and permissions
+- Customizing agent behavior
+- Extending the system
 
 ## Testing
 

@@ -22,7 +22,7 @@ async def run_query(graph, query: str, subject_id: str):
         {
             "query": query,
             "subject_id": subject_id,
-            "max_attempts": 3,
+            "max_attempts": 1,
             "retrieval_attempt": 0,
             "messages": [],
             "reasoning": [],
@@ -73,30 +73,66 @@ async def main():
     graph = build_agentic_rag_graph()
 
     # Example 1: Alice (engineering) queries engineering documents
+    print("\n🔵 SCENARIO 1: Department Access - Engineering")
     await run_query(
         graph,
-        "What are our system architecture best practices?",
+        "What are our microservices architecture patterns?",
         "alice"
     )
 
-    # Example 2: Bob (not in engineering) queries engineering documents
+    # Example 2: Bob (sales) queries sales documents
+    print("\n🔵 SCENARIO 2: Department Access - Sales")
     await run_query(
         graph,
-        "What are the engineering system architecture details?",
+        "What sales proposals do we have?",
         "bob"
     )
 
-    # Example 3: Alice queries HR documents (should be denied)
+    # Example 3: Cross-department document access
+    print("\n🔵 SCENARIO 3: Cross-Department Access")
     await run_query(
         graph,
-        "What are the employee compensation guidelines?",
+        "What architecture documentation is available for sales?",
+        "bob"
+    )
+
+    # Example 4: Individual exception - Alice accessing sales doc
+    print("\n🔵 SCENARIO 4: Individual Exception")
+    await run_query(
+        graph,
+        "Show me sales proposals",
         "alice"
     )
 
-    # Example 4: HR manager queries HR documents
+    # Example 5: Public document access
+    print("\n🔵 SCENARIO 5: Public Document Access")
     await run_query(
         graph,
-        "What are the employee compensation guidelines?",
+        "What are the company handbook guidelines?",
+        "bob"
+    )
+
+    # Example 6: Finance manager queries
+    print("\n🔵 SCENARIO 6: Finance Department Access")
+    await run_query(
+        graph,
+        "What are the quarterly financial reports?",
+        "finance_manager"
+    )
+
+    # Example 7: Access denial - Alice queries sales (except individual exception)
+    print("\n🔵 SCENARIO 7: Access Denial")
+    await run_query(
+        graph,
+        "What are all the sales playbooks?",
+        "alice"
+    )
+
+    # Example 8: HR manager queries
+    print("\n🔵 SCENARIO 8: HR Department Access")
+    await run_query(
+        graph,
+        "What HR policies do we have?",
         "hr_manager"
     )
 

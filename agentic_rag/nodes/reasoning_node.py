@@ -1,10 +1,14 @@
 """Reasoning node - agent reasons about authorization failures."""
 
+import time
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import AIMessage
 from ..state import AgenticRAGState
 from ..config import get_config
+from ..logging_config import get_logger
+
+logger = get_logger("nodes.reasoning")
 
 REASONING_PROMPT = """You are an intelligent reasoning agent. The user's query could not be fully answered because some documents were denied due to permissions.
 
@@ -34,6 +38,18 @@ def reasoning_node(state: AgenticRAGState) -> dict:
     - Explain authorization constraints
     - Make informed decisions about how to proceed
     """
+    start_time = time.time()
+
+    logger.info(
+        "Starting reasoning",
+        extra={
+            "subject_id": state["subject_id"],
+            "authorized_count": len(state["authorized_documents"]),
+            "denied_count": state["denied_count"],
+            "attempt": state["retrieval_attempt"],
+        },
+    )
+
     config = get_config()
 
     llm = ChatOpenAI(model="gpt-4", temperature=0, api_key=config.openai_api_key)
@@ -61,6 +77,17 @@ def reasoning_node(state: AgenticRAGState) -> dict:
 
     reasoning = state.get("reasoning", [])
     reasoning.append(result.content)
+
+    duration_ms = (time.time() - start_time) * 1000
+
+    logger.info(
+        "Reasoning complete",
+        extra={
+            "subject_id": state["subject_id"],
+            "decision_length": len(result.content),
+            "duration_ms": duration_ms,
+        },
+    )
 
     return {
         "reasoning": reasoning,

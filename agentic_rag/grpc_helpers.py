@@ -1,6 +1,8 @@
 """Helper functions for gRPC and SpiceDB authentication."""
 
 import grpc
+from threading import Lock
+from typing import Optional
 
 
 class BearerTokenInterceptor(grpc.UnaryUnaryClientInterceptor, grpc.UnaryStreamClientInterceptor):
@@ -40,6 +42,11 @@ class BearerTokenInterceptor(grpc.UnaryUnaryClientInterceptor, grpc.UnaryStreamC
         return continuation(new_details, request)
 
 
+# Global singleton for SpiceDB client with thread-safe initialization
+_spicedb_client: Optional["Client"] = None
+_spicedb_lock = Lock()
+
+
 def create_insecure_spicedb_client(endpoint: str, token: str):
     """
     Create a SpiceDB client for insecure connections (local development).
@@ -65,6 +72,48 @@ def create_insecure_spicedb_client(endpoint: str, token: str):
     client.init_stubs(intercepted_channel)
 
     return client
+
+
+def get_spicedb_client(endpoint: str, token: str):
+    """
+    Get or create reusable SpiceDB client (singleton, thread-safe).
+
+    This function provides connection pooling for SpiceDB by maintaining
+    a single client instance across requests, eliminating connection overhead.
+
+    Args:
+        endpoint: The SpiceDB endpoint (e.g., "localhost:50051")
+        token: The bearer token (e.g., "devtoken")
+
+    Returns:
+        authzed.api.v1.Client configured for insecure connection
+    """
+    from authzed.api.v1 import Client
+
+    global _spicedb_client
+
+    # Fast path: client already exists
+    if _spicedb_client is not None:
+        return _spicedb_client
+
+    # Slow path: create new client with thread-safe lock
+    with _spicedb_lock:
+        # Double-check after acquiring lock
+        if _spicedb_client is None:
+            _spicedb_client = create_insecure_spicedb_client(endpoint, token)
+
+    return _spicedb_client
+
+
+def reset_spicedb_client():
+    """
+    Reset singleton (useful for testing).
+
+    This allows tests to clear the cached client and create a fresh one.
+    """
+    global _spicedb_client
+    with _spicedb_lock:
+        _spicedb_client = None
 
 
 # Backward compatibility - keep the old function name

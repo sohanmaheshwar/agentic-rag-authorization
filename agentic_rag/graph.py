@@ -9,6 +9,7 @@ from .nodes import (
     reasoning_node,
     generation_node,
 )
+from .validation import validate_query, validate_subject_id, ValidationError
 
 
 def should_retry_or_generate(state: AgenticRAGState) -> str:
@@ -89,3 +90,47 @@ def build_agentic_rag_graph():
     workflow.add_edge("generate", END)
 
     return workflow.compile()
+
+
+def run_agentic_rag(query: str, subject_id: str, max_attempts: int = 1) -> dict:
+    """
+    Run the agentic RAG graph with input validation.
+
+    This is the main entry point for running the agentic RAG system.
+    It validates inputs before processing to ensure security and stability.
+
+    Args:
+        query: User query string
+        subject_id: User/subject identifier for authorization
+        max_attempts: Maximum number of retrieval attempts (default 1)
+
+    Returns:
+        Final state dict with answer and metadata
+
+    Raises:
+        ValidationError: If inputs are invalid
+    """
+    # Validate inputs
+    query = validate_query(query)
+    subject_id = validate_subject_id(subject_id)
+
+    # Build graph
+    graph = build_agentic_rag_graph()
+
+    # Run graph
+    initial_state = {
+        "query": query,
+        "subject_id": subject_id,
+        "max_attempts": max_attempts,
+        "retrieved_documents": [],
+        "authorized_documents": [],
+        "denied_count": 0,
+        "reasoning": [],
+        "retrieval_attempt": 0,
+        "authorization_passed": False,
+        "messages": [],
+        "answer": None,
+    }
+
+    result = graph.invoke(initial_state)
+    return result
