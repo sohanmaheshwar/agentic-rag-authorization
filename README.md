@@ -1,8 +1,11 @@
 # Agentic RAG with Fine-Grained Authorization
 
-**A hands-on teaching tool for developers learning to build RAG systems with authorization.**
 
-This repository demonstrates how to combine agentic behavior with deterministic security using LangGraph, SpiceDB, and Weaviate. You'll learn to build RAG systems where an agent adapts to authorization constraints instead of failing silently.
+This repository demonstrates how to combine agentic behavior with deterministic fine-grained authorization using LangGraph, SpiceDB, and Weaviate. You'll learn to build RAG systems where a user can view information only based on the documents they have access to.
+
+This project uses the [LangChain - SpiceDB] (https://pypi.org/project/langchain-spicedb/) library
+
+![screengrab](//imgur.com/a/UH7AD6L)
 
 ## Documentation Navigation
 
@@ -12,14 +15,12 @@ This repository demonstrates how to combine agentic behavior with deterministic 
 
 ## What You'll Learn
 
-This teaching tool demonstrates:
+This repo demonstrates:
 
-1. **Fine-grained authorization in RAG** - How to enforce document-level permissions with SpiceDB
+1. **Fine-grained authorization in RAG** - How to enforce document-level permissions with SpiceDB to ensure the user only information based on what they have access to
 2. **Security architecture** - Deterministic authorization boundary that cannot be bypassed
-3. **Transparent explanations** - Systems that explain what users can and can't access
-4. **Production features** - Structured logging, connection pooling, batch operations, error handling
-5. **Real-world complexity** - 50 documents, 4 permission patterns, multiple user scenarios
-6. **Optional adaptation** - How to enable retry logic when needed (max_attempts > 1)
+3. **Production features** - Structured logging, connection pooling, batch operations, error handling
+4. **Real-world complexity** - 50 documents, 4 permission patterns with hierarchies.
 
 Note: Despite the "agentic RAG" name, the default mode is intentionally simple and deterministic (3 nodes: retrieve → authorize → generate). This provides fast, predictable behavior suitable for most use cases.
 
@@ -30,13 +31,14 @@ Traditional RAG retrieves documents by semantic similarity without considering p
 1. **Security risk**: Users might see documents they shouldn't access
 2. **Poor UX**: Silent failures when documents are denied, with no explanation
 
+Read the [OWASP Top 10 for LLM](https://owasp.org/www-project-top-10-for-large-language-model-applications/) and [OWASP Top 10 Risks to Web Apps](https://owasp.org/Top10/2025/A01_2025-Broken_Access_Control/) for more information on why access control matters.
+
 ## The Solution
 
 This implementation shows how to combine:
 - **Retrieval-first approach**: Direct semantic/keyword search without upfront planning overhead
 - **Deterministic security**: SpiceDB authorization that cannot be bypassed
 - **Transparency**: Users understand what they can/can't access and why
-- **Optional adaptation**: Can enable reasoning for retry logic when needed
 
 ```
 Traditional RAG:  Query → Retrieve → Generate
@@ -46,10 +48,6 @@ Traditional RAG:  Query → Retrieve → Generate
 This approach (default):  Query → Retrieve → [SpiceDB Authorizes] → Generate
                                                ↓
                                        Security boundary
-
-Advanced mode:           Query → Retrieve → [SpiceDB Authorizes] → [Reason] → Generate/Retry
-                                               ↓                      ↓
-                                       Security boundary      Adaptive behavior
 ```
 
 ## Quick Example
@@ -60,7 +58,7 @@ Query: "What are our system architecture best practices?"
 User: alice
 
 Result:
-✅ Retrieved: 3 documents
+✅ Retrieved: 3 documents via semantic search
 ✅ Authorized: 2 documents (eng-001, eng-002)
 ❌ Denied: 1 document (hr-001)
 
@@ -113,7 +111,6 @@ python3 examples/setup_environment.py
 python3 examples/basic_example.py
 ```
 
-Expected output: 4 scenarios showing authorized access, denied access, and transparent explanations.
 
 ## Web UI
 
@@ -152,37 +149,6 @@ uvicorn api.main:app --reload --host 0.0.0.0 --port 8000
 open http://localhost:8000
 ```
 
-### Web UI Features
-
-- **User Selection**: Choose from 4 users (alice, bob, hr_manager, finance_manager)
-- **Query Input**: Enter natural language queries
-- **Example Queries**: Pre-populated queries demonstrating different authorization scenarios
-- **Authorization Transparency**: See which documents were authorized vs denied in real-time
-- **Answer Generation**: LLM-generated answer using only authorized documents
-- **Statistics Display**: Retrieved count, authorized count, denied count, and execution time
-
-### API Endpoints
-
-The backend provides a REST API that can be used independently:
-
-- `GET /api/users` - List available users
-- `GET /api/health` - Health check for services
-- `POST /api/query` - Execute RAG query with authorization
-- `GET /docs` - Interactive API documentation (Swagger UI)
-
-Example API usage:
-```bash
-curl -X POST http://localhost:8000/api/query \
-  -H "Content-Type: application/json" \
-  -d '{
-    "query": "What are our microservices architecture patterns?",
-    "subject_id": "alice",
-    "max_attempts": 1
-  }'
-```
-
-Expected output: 4 scenarios showing authorized access, denied access, and transparent explanations.
-
 ## How It Works
 
 ### 1. Authorization Model (SpiceDB)
@@ -207,7 +173,7 @@ definition document {
 
 ### 2. State Flow
 
-**Default Mode (max_attempts=1):**
+**Default Mode**
 ```
 User Query
     ↓
@@ -218,54 +184,12 @@ Authorization Node ← SpiceDB filters (SECURITY BOUNDARY - cannot be bypassed)
 Generation Node ← Answer with authorized context + explanations
 ```
 
-**Adaptive Mode (max_attempts > 1):**
-```
-User Query
-    ↓
-Retrieval Node ← Weaviate search
-    ↓
-Authorization Node ← SpiceDB filters (SECURITY BOUNDARY)
-    ↓
-Conditional Branch:
-├─ Has authorized docs → Generation Node
-└─ No authorized docs → Reasoning Node → Retry Retrieval or Generate Explanation
-```
-
 ### 3. Security Guarantees
 
 - **Authorization always runs**: Hardcoded in LangGraph workflow, agent cannot skip
 - **Deterministic checks**: SpiceDB enforces permissions (no LLM involved)
 - **Fail closed**: Access denied unless explicitly granted
 - **Observable**: Full audit trail in state
-
-### 4. System Behavior
-
-The system provides:
-- **Direct retrieval**: BM25 keyword search without planning overhead (fast, efficient)
-- **Deterministic authorization**: SpiceDB enforces permissions consistently
-- **Transparent explanations**: Generation explains what was accessible and what wasn't
-- **Optional adaptation**: Enable reasoning (max_attempts > 1) for retry logic when needed
-
-Note: By default (max_attempts=1), the system is intentionally simple and deterministic rather than highly agentic. This provides fast, predictable behavior suitable for most use cases. Enable adaptive mode (max_attempts > 1) when you need retry logic and iterative refinement.
-
-## When to Use This Pattern
-
-**Use this RAG pattern when:**
-- You need fine-grained document-level authorization
-- Users should understand what they can/can't access
-- Authorization logic is complex (department-based, cross-department, exceptions)
-- Transparency matters for trust/compliance
-- You want deterministic, predictable behavior
-
-**Enable adaptive mode (max_attempts > 1) when:**
-- Retrieval failures should trigger retry logic
-- Authorization failures need adaptive responses
-- Users benefit from multiple retrieval strategies
-
-**Use traditional pipeline RAG when:**
-- Authorization is simple (all-or-nothing access)
-- No per-document permissions needed
-- Semantic similarity alone determines results
 
 ## Project Structure
 
@@ -316,15 +240,9 @@ MAX_RETRIEVAL_ATTEMPTS=3
 
 ## Dataset Overview
 
-The repository includes a realistic 50-document dataset across 5 departments:
+The repository includes a realistic 50-document dataset across 5 departments.
 
-- **Engineering**: 15 documents (architecture, guides, memos, specs)
-- **Sales**: 10 documents (proposals, guides, playbooks, reports)
-- **HR**: 10 documents (policies, guides, handbooks, memos)
-- **Finance**: 10 documents (reports, policies, analyses, memos)
-- **Public**: 5 documents (handbooks, policies - accessible to all)
-
-**4 Authorization Patterns:**
+**Authorization Patterns:**
 1. Department-based access (primary pattern)
 2. Cross-department collaboration (3 shared documents)
 3. Individual user exceptions (3 special grants)
@@ -344,58 +262,6 @@ The `examples/basic_example.py` demonstrates 8 scenarios:
 6. **Finance Department** - finance_manager queries financial reports
 7. **HR Department** - hr_manager queries HR policies
 8. **Transparent Explanations** - Agent explains why access was denied
-
-## Key Design Decisions
-
-**Why post-filter authorization?**
-- Better semantic search (not limited by metadata filters)
-- Always up-to-date permissions (computed by SpiceDB)
-- Works with complex relationship-based policies
-
-**Why LangGraph over ReAct?**
-- Enforces security boundary (authorization node always runs)
-- Observable state for debugging/auditing
-- Clearer separation of concerns
-
-**Why deterministic authorization node?**
-- Security decisions must not be LLM-based
-- Guarantees compliance with permission policies
-- Agent reasons about results, not controls them
-
-## Production Features
-
-This implementation includes production-ready patterns you can learn from:
-
-- **Structured logging**: JSON logs with audit trails and performance metrics
-- **Connection pooling**: Singleton pattern for SpiceDB and Weaviate clients (eliminates 100ms overhead)
-- **Batch operations**: SpiceDB's `CheckBulkPermissions` API (5-10x faster than sequential)
-- **Error handling**: Graceful degradation when services fail
-- **Input validation**: Prevents DoS and injection attacks
-- **Simplified architecture**: 3-node default flow (retrieve → authorize → generate)
-
-**Performance:**
-- Default mode (max_attempts=1): ~3-4s per query (2-3s LLM, 0.5-1s retrieval, 40-50ms authorization)
-- Adaptive mode (max_attempts > 1): ~5-8s per query (adds 1-2s per reasoning/retry cycle)
-
-For detailed performance analysis and optimization strategies, see [PERFORMANCE.md](PERFORMANCE.md).
-
-## Learning Path
-
-**For beginners:**
-1. Start here - understand the problem and solution
-2. Run the Quick Start above
-3. Review `examples/basic_example.py` to see the system in action
-4. Check `data/PERMISSIONS.md` to understand authorization patterns
-
-**For intermediate learners:**
-5. Read [ARCHITECTURE.md](ARCHITECTURE.md) for design decisions and security model
-6. Explore the code in `agentic_rag/nodes/` to see how each node works
-7. Review [PERFORMANCE.md](PERFORMANCE.md) for optimization strategies
-
-**For advanced learners:**
-8. Extend the system - add new nodes, tools, or permission patterns
-9. Experiment with hybrid search, caching, or async operations
-10. Adapt patterns to your own use case
 
 ## Contributing & Extending
 
