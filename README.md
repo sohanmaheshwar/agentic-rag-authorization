@@ -3,9 +3,9 @@
 
 This repository demonstrates how to combine agentic behavior with deterministic fine-grained authorization using LangGraph, SpiceDB, and Weaviate. You'll learn to build RAG systems where a user can view information only based on the documents they have access to.
 
-This project uses the [LangChain - SpiceDB] (https://pypi.org/project/langchain-spicedb/) library
+This project uses the [LangChain SpiceDB](https://pypi.org/project/langchain-spicedb/) library
 
-![screengrab](//imgur.com/a/UH7AD6L)
+![screengrab](agentic-rag.gif)
 
 ## Documentation Navigation
 
